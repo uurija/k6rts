@@ -3,7 +3,12 @@
 See on lihtne töölaua-rakendus (`tkinter`), mis demonstreerib lauateeninduse töövoogu:
 
 - teenindaja näeb **laudade kaarti**;
-- saab laua lisada, valides numbri ja **klõpsates kaardil asukoha** (klõps läheb laua keskpunktiks);
+- lauad on **ristkülikud**;
+- lauda lisades küsitakse, mitu inimest istub igal küljel (üleval, paremal, all, vasakul);
+- laua kuju ratio arvestab külgede istekohtade maksimumiga:
+  - laius = `max(üleval, all)`
+  - kõrgus = `max(vasakul, paremal)`
+- istumiskohad kuvatakse väikeste ringidena numbritega **päripäeva**, alustades ülevalt vasakult suunalt;
 - lisada tellimusi konkreetse **külalise** alla;
 - kuvada **jagatud arve** või **ühise arve**;
 - makstes näha külalise **tšeki formaati**;

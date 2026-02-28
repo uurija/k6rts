@@ -7,7 +7,10 @@ from typing import Dict, List
 
 APP_TITLE = "Lauateeninduse Süsteem"
 DEFAULT_LAYOUT_FILE = "table_layout.json"
-TABLE_DIAMETER = 70
+BASE_UNIT = 36
+MIN_TABLE_SIDE = 80
+SEAT_RADIUS = 12
+SEAT_OFFSET = 24
 
 
 @dataclass
@@ -56,10 +59,10 @@ class RestaurantServiceApp(tk.Tk):
         self.geometry("1200x720")
 
         self.layout_file = Path(DEFAULT_LAYOUT_FILE)
-        self.table_positions: Dict[int, Dict[str, int]] = {}
+        self.table_layout: Dict[int, Dict] = {}
         self.table_data: Dict[int, TableData] = {}
         self.selected_table: int | None = None
-        self.pending_table_number: int | None = None
+        self.pending_table: Dict | None = None
 
         self._build_ui()
         self.load_layout(self.layout_file)
@@ -68,7 +71,7 @@ class RestaurantServiceApp(tk.Tk):
         top = ttk.Frame(self)
         top.pack(fill="x", padx=8, pady=8)
 
-        ttk.Button(top, text="Lisa laud (klõps kaardil)", command=self.add_table_dialog).pack(side="left", padx=4)
+        ttk.Button(top, text="Lisa laud (ristkülik)", command=self.add_table_dialog).pack(side="left", padx=4)
         ttk.Button(top, text="Salvesta kaart", command=self.save_layout_dialog).pack(side="left", padx=4)
         ttk.Button(top, text="Laadi kaart", command=self.load_layout_dialog).pack(side="left", padx=4)
 
@@ -123,43 +126,107 @@ class RestaurantServiceApp(tk.Tk):
         ttk.Button(split_buttons, text="Näita ühist arvet", command=self.show_shared_bill).pack(side="left", padx=3)
 
     def add_table_dialog(self):
-        table_number = simpledialog.askinteger("Laua number", "Sisesta laua number:", minvalue=1)
-        if not table_number:
+        number = simpledialog.askinteger("Laua number", "Sisesta laua number:", minvalue=1)
+        if not number:
             return
-        self.pending_table_number = table_number
-        self.table_data.setdefault(table_number, TableData(table_number))
-        self.map_hint_label.config(text=f"Klõpsa kaardil, kuhu soovid paigutada laua {table_number} keskpunkti.")
+
+        up = simpledialog.askinteger("Ülemine külg", "Mitu inimest istub üleval küljel?", minvalue=0)
+        right = simpledialog.askinteger("Parem külg", "Mitu inimest istub paremal küljel?", minvalue=0)
+        down = simpledialog.askinteger("Alumine külg", "Mitu inimest istub all küljel?", minvalue=0)
+        left = simpledialog.askinteger("Vasak külg", "Mitu inimest istub vasakul küljel?", minvalue=0)
+        if None in (up, right, down, left):
+            return
+        if up + right + down + left == 0:
+            messagebox.showwarning(APP_TITLE, "Laual peab olema vähemalt 1 istekoht.")
+            return
+
+        self.pending_table = {
+            "number": number,
+            "sides": {"up": up, "right": right, "down": down, "left": left},
+        }
+        self.table_data.setdefault(number, TableData(number))
+        self.map_hint_label.config(text=f"Klõpsa kaardil laua {number} keskpunkti asukohta.")
+
+    def _table_size(self, sides: Dict[str, int]) -> tuple[int, int]:
+        width_units = max(1, max(sides["up"], sides["down"]))
+        height_units = max(1, max(sides["left"], sides["right"]))
+        width = max(MIN_TABLE_SIDE, width_units * BASE_UNIT)
+        height = max(MIN_TABLE_SIDE, height_units * BASE_UNIT)
+        return width, height
+
+    def _table_bounds(self, table_entry: Dict) -> tuple[int, int, int, int]:
+        center_x = table_entry["center"]["x"]
+        center_y = table_entry["center"]["y"]
+        width, height = self._table_size(table_entry["sides"])
+        half_w = width // 2
+        half_h = height // 2
+        return center_x - half_w, center_y - half_h, center_x + half_w, center_y + half_h
+
+    def _seat_points(self, table_entry: Dict) -> List[tuple[float, float, int]]:
+        left, top, right, bottom = self._table_bounds(table_entry)
+        sides = table_entry["sides"]
+        points: List[tuple[float, float, int]] = []
+        number = 1
+
+        def spread(start: float, end: float, count: int) -> List[float]:
+            if count <= 0:
+                return []
+            step = (end - start) / (count + 1)
+            return [start + step * (idx + 1) for idx in range(count)]
+
+        # Clockwise numbering from top-left direction.
+        for x in spread(left, right, sides["up"]):
+            points.append((x, top - SEAT_OFFSET, number))
+            number += 1
+        for y in spread(top, bottom, sides["right"]):
+            points.append((right + SEAT_OFFSET, y, number))
+            number += 1
+        for x in reversed(spread(left, right, sides["down"])):
+            points.append((x, bottom + SEAT_OFFSET, number))
+            number += 1
+        for y in reversed(spread(top, bottom, sides["left"])):
+            points.append((left - SEAT_OFFSET, y, number))
+            number += 1
+
+        return points
 
     def redraw_map(self):
         self.map_canvas.delete("all")
-        for table_num, pos in sorted(self.table_positions.items()):
-            x, y = pos["x"], pos["y"]
+        for table_num, table_entry in sorted(self.table_layout.items()):
+            left, top, right, bottom = self._table_bounds(table_entry)
             fill = "#1f6feb" if table_num == self.selected_table else "#58a6ff"
-            self.map_canvas.create_oval(x, y, x + TABLE_DIAMETER, y + TABLE_DIAMETER, fill=fill, outline="")
-            self.map_canvas.create_text(
-                x + TABLE_DIAMETER // 2,
-                y + TABLE_DIAMETER // 2,
-                text=f"Laud {table_num}",
-                fill="white",
-                font=("Segoe UI", 10, "bold"),
-            )
+            self.map_canvas.create_rectangle(left, top, right, bottom, fill=fill, outline="#0b3d91", width=2)
+            self.map_canvas.create_text((left + right) // 2, (top + bottom) // 2, text=f"Laud {table_num}", fill="white", font=("Segoe UI", 10, "bold"))
+
+            for seat_x, seat_y, seat_num in self._seat_points(table_entry):
+                self.map_canvas.create_oval(
+                    seat_x - SEAT_RADIUS,
+                    seat_y - SEAT_RADIUS,
+                    seat_x + SEAT_RADIUS,
+                    seat_y + SEAT_RADIUS,
+                    fill="#ffd166",
+                    outline="#8a5b00",
+                )
+                self.map_canvas.create_text(seat_x, seat_y, text=str(seat_num), font=("Segoe UI", 9, "bold"))
 
     def _on_canvas_click(self, event):
-        if self.pending_table_number is not None:
-            left_x = max(0, event.x - TABLE_DIAMETER // 2)
-            left_y = max(0, event.y - TABLE_DIAMETER // 2)
-            self.table_positions[self.pending_table_number] = {"x": left_x, "y": left_y}
-            self.selected_table = self.pending_table_number
-            self.pending_table_number = None
-            self.table_label.config(text=f"Valitud laud: {self.selected_table}")
+        if self.pending_table is not None:
+            number = self.pending_table["number"]
+            self.table_layout[number] = {
+                "center": {"x": event.x, "y": event.y},
+                "sides": self.pending_table["sides"],
+            }
+            self.selected_table = number
+            self.pending_table = None
+            self.table_label.config(text=f"Valitud laud: {number}")
             self.map_hint_label.config(text="")
             self.redraw_map()
             self.refresh_orders()
             return
 
-        for table_num, pos in self.table_positions.items():
-            x, y = pos["x"], pos["y"]
-            if x <= event.x <= x + TABLE_DIAMETER and y <= event.y <= y + TABLE_DIAMETER:
+        for table_num, table_entry in self.table_layout.items():
+            left, top, right, bottom = self._table_bounds(table_entry)
+            if left <= event.x <= right and top <= event.y <= bottom:
                 self.selected_table = table_num
                 self.table_label.config(text=f"Valitud laud: {table_num}")
                 self.redraw_map()
@@ -261,14 +328,14 @@ class RestaurantServiceApp(tk.Tk):
         cash_amount_var = tk.StringVar(value="")
 
         ttk.Label(dlg, text="Vali külaline:").pack(anchor="w", padx=12, pady=(12, 0))
-        guest_box = ttk.Combobox(dlg, textvariable=guest_var, values=payable_guests, state="readonly")
-        guest_box.pack(fill="x", padx=12)
+        ttk.Combobox(dlg, textvariable=guest_var, values=payable_guests, state="readonly").pack(fill="x", padx=12)
 
         ttk.Label(dlg, text="Tšekk:").pack(anchor="w", padx=12, pady=(10, 0))
         receipt = tk.Text(dlg, height=12)
         receipt.pack(fill="both", expand=True, padx=12, pady=(0, 8))
 
         def refresh_receipt(*_):
+            receipt.config(state="normal")
             receipt.delete("1.0", tk.END)
             receipt.insert("1.0", self._build_guest_receipt(table, guest_var.get()))
             receipt.config(state="disabled")
@@ -377,8 +444,7 @@ class RestaurantServiceApp(tk.Tk):
         self.split_text.insert("1.0", f"Ühine arve kogu lauale: {table.total():.2f} €")
 
     def save_layout(self):
-        data = {"tables": self.table_positions}
-        self.layout_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        self.layout_file.write_text(json.dumps({"tables": self.table_layout}, indent=2), encoding="utf-8")
 
     def save_layout_dialog(self):
         file = filedialog.asksaveasfilename(
@@ -396,16 +462,19 @@ class RestaurantServiceApp(tk.Tk):
         if path.exists():
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
-                raw_tables = data.get("tables", {})
-                self.table_positions = {int(k): v for k, v in raw_tables.items()}
-                for number in self.table_positions:
+                raw = data.get("tables", {})
+                self.table_layout = {int(k): v for k, v in raw.items()}
+                for number in self.table_layout:
                     self.table_data.setdefault(number, TableData(number))
             except Exception as exc:
                 messagebox.showwarning(APP_TITLE, f"Kaardi laadimine ebaõnnestus: {exc}")
-                self.table_positions = {}
+                self.table_layout = {}
         else:
-            self.table_positions = {1: {"x": 40, "y": 40}, 2: {"x": 170, "y": 40}, 3: {"x": 300, "y": 40}}
-            for number in self.table_positions:
+            self.table_layout = {
+                1: {"center": {"x": 100, "y": 100}, "sides": {"up": 2, "right": 2, "down": 2, "left": 2}},
+                2: {"center": {"x": 260, "y": 120}, "sides": {"up": 1, "right": 3, "down": 1, "left": 3}},
+            }
+            for number in self.table_layout:
                 self.table_data.setdefault(number, TableData(number))
         self.redraw_map()
 
