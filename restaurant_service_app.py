@@ -9,10 +9,10 @@ APP_TITLE = "Lauateeninduse Süsteem"
 DEFAULT_LAYOUT_FILE = "table_layout.json"
 CODES_FILE = "access_codes.json"
 SUPER_CODE = "0000"
-BASE_UNIT = 36
-MIN_TABLE_SIDE = 80
-SEAT_RADIUS = 12
-SEAT_OFFSET = 24
+BASE_UNIT = 22
+MIN_TABLE_SIDE = 48
+SEAT_RADIUS = 8
+SEAT_OFFSET = 14
 
 
 @dataclass
@@ -238,6 +238,53 @@ class RestaurantServiceApp(tk.Tk):
             seat_number += 1
         return points
 
+    def _guest_seat_numbers(self, table: TableData) -> set[int]:
+        seat_numbers: set[int] = set()
+        for guest_id in table.guests.keys():
+            digits = "".join(ch for ch in guest_id if ch.isdigit())
+            if digits:
+                seat_numbers.add(int(digits))
+        return seat_numbers
+
+    def _draw_table_preview(self, canvas: tk.Canvas):
+        canvas.delete("all")
+        if self.selected_table is None:
+            return
+        entry = self.table_layout.get(self.selected_table)
+        table = self.table_data.get(self.selected_table)
+        if not entry or table is None:
+            return
+
+        seat_hits = self._guest_seat_numbers(table)
+        width = int(canvas.winfo_width()) if canvas.winfo_width() > 1 else 240
+        height = int(canvas.winfo_height()) if canvas.winfo_height() > 1 else 240
+
+        left, top, right, bottom = self._table_bounds(entry)
+        center_x = (left + right) / 2
+        center_y = (top + bottom) / 2
+        source_w = max(1, right - left)
+        source_h = max(1, bottom - top)
+
+        target_w = max(60, width * 0.45)
+        target_h = max(60, height * 0.45)
+        scale = min(target_w / source_w, target_h / source_h)
+
+        seat_radius = max(4, int(SEAT_RADIUS * scale * 0.9))
+
+        def tx(x: float) -> float:
+            return (x - center_x) * scale + width / 2
+
+        def ty(y: float) -> float:
+            return (y - center_y) * scale + height / 2
+
+        canvas.create_rectangle(tx(left), ty(top), tx(right), ty(bottom), fill="#58a6ff", outline="#0b3d91", width=2)
+        canvas.create_text(width / 2, height / 2, text=f"Laud {self.selected_table}", fill="white", font=("Segoe UI", 10, "bold"))
+
+        for sx, sy, sn in self._seat_points(entry):
+            seat_color = "#f2cc60" if sn in seat_hits else "#2ea043"
+            canvas.create_oval(tx(sx) - seat_radius, ty(sy) - seat_radius, tx(sx) + seat_radius, ty(sy) + seat_radius, fill=seat_color, outline="#1f2328")
+            canvas.create_text(tx(sx), ty(sy), text=str(sn), font=("Segoe UI", 8, "bold"), fill="black")
+
     def _table_owner(self, table_num: int) -> str | None:
         return self.table_layout.get(table_num, {}).get("owner")
 
@@ -326,7 +373,7 @@ class RestaurantServiceApp(tk.Tk):
 
         dlg = tk.Toplevel(self)
         dlg.title(f"Tellimused - Laud {table_num}")
-        dlg.geometry("700x620")
+        dlg.geometry("980x620")
         self._front_dialog(dlg)
         self.order_window = dlg
 
@@ -338,22 +385,36 @@ class RestaurantServiceApp(tk.Tk):
         ttk.Button(controls, text="Lisa tellimus", command=lambda: self.add_order_dialog(parent=dlg)).pack(side="left", padx=3)
         ttk.Button(controls, text="Maksa külaline", command=lambda: self.pay_guest_dialog(parent=dlg)).pack(side="left", padx=3)
 
+        content = ttk.Frame(dlg)
+        content.pack(fill="both", expand=True, padx=12, pady=6)
+
+        preview_frame = ttk.LabelFrame(content, text="Laua paigutus")
+        preview_frame.pack(side="left", fill="y", padx=(0, 12))
+        preview_canvas = tk.Canvas(preview_frame, width=280, height=380, bg="#f6f8fa")
+        preview_canvas.pack(fill="both", expand=True, padx=8, pady=8)
+
+        right_side = ttk.Frame(content)
+        right_side.pack(side="left", fill="both", expand=True)
+
         columns = ("guest", "item", "qty", "unit", "total")
-        tree = ttk.Treeview(dlg, columns=columns, show="headings", height=18)
+        tree = ttk.Treeview(right_side, columns=columns, show="headings", height=18)
         for col, title, width in [("guest", "Külaline", 120), ("item", "Toode", 200), ("qty", "Kogus", 70), ("unit", "Ühik", 90), ("total", "Summa", 90)]:
             tree.heading(col, text=title)
             tree.column(col, width=width)
-        tree.pack(fill="both", expand=True, padx=12, pady=6)
+        tree.pack(fill="both", expand=True)
 
-        total_label = ttk.Label(dlg, text="Laua kogusumma: 0.00 €", font=("Segoe UI", 11, "bold"))
-        total_label.pack(anchor="w", padx=12)
-        output = tk.Text(dlg, height=7)
-        output.pack(fill="x", padx=12, pady=(4, 10))
+        total_label = ttk.Label(right_side, text="Laua kogusumma: 0.00 €", font=("Segoe UI", 11, "bold"))
+        total_label.pack(anchor="w", pady=(8, 0))
+        output = tk.Text(right_side, height=7)
+        output.pack(fill="x", pady=(4, 0))
 
         self._order_tree = tree
         self._order_total_label = total_label
         self._order_output = output
+        self._order_preview_canvas = preview_canvas
         self._refresh_order_widgets(tree, total_label)
+
+        preview_canvas.bind("<Configure>", lambda _e: self._draw_table_preview(preview_canvas))
 
         def close_order_window():
             dlg.destroy()
@@ -374,6 +435,8 @@ class RestaurantServiceApp(tk.Tk):
             for order in items:
                 tree.insert("", "end", values=(guest, order.name, order.qty, f"{order.unit_price:.2f}", f"{order.total:.2f}"))
         total_label.config(text=f"Laua kogusumma: {table.total():.2f} €")
+        if hasattr(self, "_order_preview_canvas") and self._order_preview_canvas.winfo_exists():
+            self._draw_table_preview(self._order_preview_canvas)
         self.redraw_map()
 
     def add_guest_dialog(self, parent: tk.Misc | None = None):

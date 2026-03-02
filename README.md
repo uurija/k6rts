@@ -15,6 +15,13 @@
 - Kui laud on teise koodi all, on see sulle **punane** ja sa ei saa seda avada.
 - SUPER näeb teiste hõivatud laudu samuti **punasena**, kuid SUPER saab need avada.
 
+## Uued visuaalsed muudatused
+
+- Lauad ja istumiskohad on tehtud väiksemaks, et suurem kaart mahuks paremini ekraanile.
+- Tellimuse akna vasakul küljel kuvatakse valitud laua eraldi detailvaade koos istekohtade ringidega.
+- Detailvaates on istekoha ring vaikimisi **roheline**.
+- Kui külalise ID-s olev number vastab istekoha numbrile, muutub see istekoha ring **kollaseks**.
+
 ## Tööpõhimõte
 
 - Peaaken on kaart.
