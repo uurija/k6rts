@@ -67,6 +67,19 @@ class RestaurantServiceApp(tk.Tk):
         self._build_ui()
         self.load_layout(self.layout_file)
 
+    def open_modal(self, parent, title, size):
+        parent.grab_release()
+        win = tk.Toplevel(parent)
+        win.title(title)
+        win.geometry(size)
+        win.transient(parent)
+        win.grab_set()
+        win.lift()
+        win.focus_force()
+        win.attributes("-topmost", True)
+        win.after(100, lambda: win.attributes("-topmost", False))
+        return win
+
     def _build_ui(self):
         top = ttk.Frame(self)
         top.pack(fill="x", padx=8, pady=8)
@@ -261,6 +274,10 @@ class RestaurantServiceApp(tk.Tk):
         dlg.geometry("360x240")
         dlg.transient(self)
         dlg.grab_set()
+        dlg.lift()
+        dlg.focus_force()
+        dlg.attributes("-topmost", True)
+        dlg.after(100, lambda: dlg.attributes("-topmost", False))
 
         ttk.Label(dlg, text="Külaline").pack(anchor="w", padx=12, pady=(12, 0))
         guest_var = tk.StringVar(value=next(iter(table.guests.keys())))
@@ -322,6 +339,10 @@ class RestaurantServiceApp(tk.Tk):
         dlg.geometry("430x470")
         dlg.transient(self)
         dlg.grab_set()
+        dlg.lift()
+        dlg.focus_force()
+        dlg.attributes("-topmost", True)
+        dlg.after(100, lambda: dlg.attributes("-topmost", False))
 
         guest_var = tk.StringVar(value=payable_guests[0])
         method_var = tk.StringVar(value="cash")
@@ -387,6 +408,11 @@ class RestaurantServiceApp(tk.Tk):
             card_window.geometry("280x140")
             card_window.transient(dlg)
             ttk.Label(card_window, text="Sisesta kaart...", font=("Segoe UI", 12, "bold")).pack(pady=(20, 10))
+            card_window.grab_set()
+            card_window.lift()
+            card_window.focus_force()
+            card_window.attributes("-topmost", True)
+            card_window.after(100, lambda: card_window.attributes("-topmost", False))
 
             def confirm_card_payment():
                 receipt_text = self._build_guest_receipt(table, guest)
